@@ -23,16 +23,16 @@ def summarize(df):
     print(f"\nShape: {df.shape[0]} rows, {df.shape[1]} columns")
     print(f"\nColumns: \n{list(df.columns)}")
 
-    label_col = next((c for c in df.columns if c.lower == "label"), None)
+    label_col = next((c for c in df.columns if c.lower() == "label"), None)
     if label_col:
         print(f"\nClass distribution ('{label_col}'):")
-        print(df[label_col].val_counts())
+        print(df[label_col].value_counts())
     else: 
         print("\nNo 'Label' column found")
 
 
     n_missing = df.isnull().sum().sum()
-    n_inf = df.select_dtypes(include="number").apply(lambda col: (col==float("inf")).sum()).sim()
+    n_inf = df.select_dtypes(include="number").apply(lambda col: (col==float("inf")).sum()).sum()
     print(f"\nMissing Values: {n_missing}")
     print(f"Infinite values: {n_inf}")
 
