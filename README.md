@@ -27,7 +27,7 @@ Activate it:
  Dataset wont be stored in this repo because it is too large for git, once dataset is chosen it will be placed in the data/ folder before running anything that needs it 
 
  ### 6. Running the code
-
+ Main pipeline: [TBD — will be added once the team's approach is finalized]
 
  ### If you would like to run attackdetect.py
  attackdetect.py requires elevted permission to sniff network traffic, it is not part of the required pipeline as it is kept as a reference demo. But if you would to run it then:
