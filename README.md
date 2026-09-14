@@ -9,7 +9,7 @@ cd NWAD-2.0
 python -m venv venv 
 
 Activate it:
-- Windows: venev\Scripts\Activate.ps1
+- Windows: venv\Scripts\Activate.ps1
  (only run: Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned if theres an error)
  - Mac/Linux: source venv/bin/activate
 
