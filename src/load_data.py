@@ -1,4 +1,4 @@
-# Data loading for NWAD0-2.0
+# Data loading for NWAD-2.0
 import pandas as pd
 from pathlib import Path
 
