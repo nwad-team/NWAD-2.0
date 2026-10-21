@@ -1,0 +1,50 @@
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Datasets and raw data
+data/raw/
+data/processed/
+datasets/
+dataset/
+*.csv
+*.parquet
+*.pkl
+*.pickle
+
+# Model checkpoints and trained weights
+checkpoints/
+runs/
+outputs/
+*.pth
+*.pt
+*.ckpt
+*.onnx
+
+# Logs and experiment artifacts
+logs/
+*.log
+tensorboard/
+.profiler/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
