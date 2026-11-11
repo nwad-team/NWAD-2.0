@@ -1,4 +1,3 @@
-
 import time
 
 import torch
@@ -66,4 +65,6 @@ def evaluate(model,dataloader,criterion,device,num_classes,use_amp=False,amp_dty
         "macro_f1": score,
         "samples_per_second": throughput,
         "elapsed_seconds": elapsed,
+        "targets": all_targets,
+        "predictions": all_predictions,
     }
