@@ -1,0 +1,18 @@
+{
+  "dataset": "C-Smote",
+  "feature_set": "behavioral",
+  "model": "random-forest",
+  "seed": 42,
+  "known_classes": [
+    "Benign",
+    "Generic",
+    "Exploits",
+    "Backdoor",
+    "Shellcode"
+  ],
+  "train_samples": 70000,
+  "validation_samples": 9576,
+  "train_macro_f1": 0.9555374133328656,
+  "validation_macro_f1": 0.7762893587676356,
+  "fit_seconds": 0.8529959000006784
+}

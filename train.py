@@ -28,15 +28,14 @@ def parse_args():
     parser.add_argument("--dataset", type=str, choices=["A", "A-Smote", "C", "C-Smote"], required=True, help="Dataset configuration to load.")
     parser.add_argument("--feature-set", type=str, choices=["behavioral", "shortcut", "combined"], default="behavioral", help="Feature group to load (default: behavioral).")
     parser.add_argument("--batch-size", "-b", type=int, default=256, help="Mini-batch size (default: 256).")
-    parser.add_argument("--epochs", type=int, default=100, metavar="N", help="Maximum number of epochs (default: 100). Early stopping usually ends training sooner.")
+    parser.add_argument("--epochs", type=int, default=100, metavar="N", help="Number of epochs to train (default: 100).")
     parser.add_argument("--lr", type=float, default=1e-3, metavar="LR", help="AdamW learning rate (default: 1e-3).")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="AdamW decoupled weight decay (default: 1e-4).")
-    parser.add_argument("--patience", type=int, default=10, help="Epochs without validation Macro-F1 improvement before stopping (default: 10).")
     parser.add_argument("--lr-patience", type=int, default=4, help="Epochs without improvement before halving the learning rate (default: 4).")
     parser.add_argument("--min-delta", type=float, default=1e-4, help="Minimum Macro-F1 gain that counts as an improvement (default: 1e-4).")
     parser.add_argument("--hidden-dims", type=int, nargs="+", default=[256, 128], help="Hidden layer widths (default: 256 128).")
     parser.add_argument("--embedding-dim", type=int, default=32, help="Embedding (penultimate layer) dimension (default: 32).")
-    parser.add_argument("--dropout", type=float, default=0.3, help="Dropout after each hidden layer (default: 0.3).")
+    parser.add_argument("--dropout", type=float, default=0.1, help="Dropout after each hidden layer (default: 0.3).")
     parser.add_argument("--loss", type=str, choices=["ce", "center"], default="ce", help="Training objective: plain cross-entropy or CE + lambda * center loss (default: ce).")
     parser.add_argument("--center-lambda", type=float, default=0.01, help="Weight of the center-loss term (default: 0.01). Only used with --loss center.")
     parser.add_argument("--center-lr", type=float, default=0.5, help="SGD learning rate for the class centers (default: 0.5, as in Wen et al. 2016).")
@@ -53,8 +52,6 @@ def parse_args():
         parser.error("--batch-size must be at least 2 (BatchNorm needs more than one sample).")
     if args.num_workers < 0:
         parser.error("--num-workers cannot be negative")
-    if args.patience < 1:
-        parser.error("--patience must be positive")
     if not 0.0 <= args.dropout < 1.0:
         parser.error("--dropout must be in [0, 1)")
     if args.center_lambda <= 0:
@@ -219,9 +216,8 @@ def main():
     loss_text = "cross-entropy" if args.loss == "ce" else f"cross-entropy + {args.center_lambda} * center loss (center lr {args.center_lr})"
     print(f"Loss: {loss_text}")
     print(f"Optimizer: AdamW(lr={args.lr}, weight_decay={args.weight_decay}), ReduceLROnPlateau(factor=0.5, patience={args.lr_patience})")
-    print(f"Early stopping: patience={args.patience} on validation Macro-F1")
     print(f"Training samples: {len(train_dataset)} | Validation samples: {len(validation_dataset)}")
-    print(f"Batch size: {args.batch_size} | Max epochs: {args.epochs}")
+    print(f"Batch size: {args.batch_size} | Epochs: {args.epochs}")
     print(f"Device: {device} | Precision: {args.precision} | Workers: {args.num_workers}")
     print(f"Checkpoints: {experiment_dir if experiment_dir else 'disabled (no --experiment-name)'}\n")
 
@@ -240,11 +236,10 @@ def main():
                 indent=2,
             )
 
-    # 8. Training loop with early stopping on validation Macro-F1.
+    # 8. Train for the configured number of epochs and keep the best validation model.
     best_val_macro_f1 = -1.0
     best_epoch = 0
     best_state = None
-    epochs_without_improvement = 0
     history = []
 
     for epoch in range(1, args.epochs + 1):
@@ -328,9 +323,6 @@ def main():
             best_val_macro_f1 = val_macro_f1
             best_epoch = epoch
             best_state = copy.deepcopy(model.state_dict())
-            epochs_without_improvement = 0
-        else:
-            epochs_without_improvement += 1
 
         epoch_time = time.perf_counter() - epoch_start
         history.append({
@@ -359,10 +351,6 @@ def main():
             if improved:
                 save_checkpoint(experiment_dir / "best.pt", model, criterion, optimizer, scheduler, epoch, val_metrics, best_val_macro_f1, args, class_names)
             pd.DataFrame(history).to_csv(experiment_dir / "history.csv", index=False)
-
-        if epochs_without_improvement >= args.patience:
-            print(f"\nEarly stopping: no improvement for {args.patience} epochs.")
-            break
 
     # 9. Final report on the best model (known-class validation).
     model.load_state_dict(best_state)

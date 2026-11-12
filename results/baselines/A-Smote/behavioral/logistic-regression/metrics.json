@@ -1,0 +1,18 @@
+{
+  "dataset": "A-Smote",
+  "feature_set": "behavioral",
+  "model": "logistic-regression",
+  "seed": 42,
+  "known_classes": [
+    "Benign",
+    "Generic",
+    "Exploits",
+    "Fuzzers",
+    "Reconnaissance"
+  ],
+  "train_samples": 70000,
+  "validation_samples": 14098,
+  "train_macro_f1": 0.8354204038676512,
+  "validation_macro_f1": 0.8258511419552624,
+  "fit_seconds": 2.358522800001083
+}

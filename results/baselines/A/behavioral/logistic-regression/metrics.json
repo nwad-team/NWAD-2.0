@@ -1,0 +1,18 @@
+{
+  "dataset": "A",
+  "feature_set": "behavioral",
+  "model": "logistic-regression",
+  "seed": 42,
+  "known_classes": [
+    "Benign",
+    "Generic",
+    "Exploits",
+    "Fuzzers",
+    "Reconnaissance"
+  ],
+  "train_samples": 65790,
+  "validation_samples": 14098,
+  "train_macro_f1": 0.836034845064294,
+  "validation_macro_f1": 0.8347858247457447,
+  "fit_seconds": 2.402980699989712
+}

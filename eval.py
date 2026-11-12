@@ -5,11 +5,8 @@ from tqdm import tqdm
 
 from utilis.metrics import macro_f1
 
-
 @torch.no_grad()
 def evaluate(model,dataloader,criterion,device,num_classes,use_amp=False,amp_dtype=torch.float32,desc="Validation",):
-    """Evaluate a multiclass classifier and return average loss and Macro-F1."""
-
     model.eval()
 
     total_loss = 0.0
