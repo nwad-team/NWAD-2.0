@@ -1,0 +1,18 @@
+{
+  "dataset": "A-Smote",
+  "feature_set": "behavioral",
+  "model": "random-forest",
+  "seed": 42,
+  "known_classes": [
+    "Benign",
+    "Generic",
+    "Exploits",
+    "Fuzzers",
+    "Reconnaissance"
+  ],
+  "train_samples": 70000,
+  "validation_samples": 14098,
+  "train_macro_f1": 0.9557055268255134,
+  "validation_macro_f1": 0.9133773680101125,
+  "fit_seconds": 0.9357158999919193
+}

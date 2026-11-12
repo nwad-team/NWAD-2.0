@@ -73,7 +73,17 @@ For example:
 python train.py --dataset A --feature-set behavioral --loss ce --experiment-name A_behavioral_ce --no-show
 ```
 
-Training fits preprocessing on the training split only, selects the best checkpoint by validation Macro-F1, and uses early stopping. To use the SMOTENC variant, choose `--dataset A-Smote` (or `C-Smote`). See `python train.py --help` for all options, including the center-loss objective and training settings.
+Training fits preprocessing on the training split only and completes all 100 epochs by default, while selecting the best checkpoint by validation Macro-F1. To train for a different number of epochs, use `--epochs N`. To use the SMOTENC variant, choose `--dataset A-Smote` (or `C-Smote`). See `python train.py --help` for all options, including the center-loss objective and training settings.
+
+### Classical baselines
+
+Train Random Forest and Logistic Regression on the known classes with the same dataset splits and preprocessing:
+
+```bash
+python train_baselines.py --dataset A --feature-set behavioral --no-show
+```
+
+Choose `A`, `C`, `A-Smote`, or `C-Smote` with `--dataset`; `--model random-forest` or `--model logistic-regression` runs only one baseline. The default runs both with seed 42. Each run reports training and validation Macro-F1 and saves the fitted model, preprocessor, metrics, and validation confusion matrix under `results/baselines/<dataset>/<feature-set>/<model>/`. A `summary.csv` in the parent directory makes the baseline scores easy to compare.
 
 With `--experiment-name`, artifacts are saved under `checkpoints/<experiment-name>/`:
 

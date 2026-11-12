@@ -1,0 +1,18 @@
+{
+  "dataset": "C",
+  "feature_set": "behavioral",
+  "model": "logistic-regression",
+  "seed": 42,
+  "known_classes": [
+    "Benign",
+    "Generic",
+    "Exploits",
+    "Backdoor",
+    "Shellcode"
+  ],
+  "train_samples": 44687,
+  "validation_samples": 9576,
+  "train_macro_f1": 0.6340691919081654,
+  "validation_macro_f1": 0.6191415876910978,
+  "fit_seconds": 1.1168715999956476
+}
