@@ -73,7 +73,7 @@ For example:
 python train.py --dataset A --feature-set behavioral --loss ce --experiment-name A_behavioral_ce --no-show
 ```
 
-Training fits preprocessing on the training split only and completes all 100 epochs by default, while selecting the best checkpoint by validation Macro-F1. To train for a different number of epochs, use `--epochs N`. To use the SMOTENC variant, choose `--dataset A-Smote` (or `C-Smote`). See `python train.py --help` for all options, including the center-loss objective and training settings.
+Training fits preprocessing on the training split only and completes all 100 epochs by default, while selecting the best checkpoint by validation Macro-F1. AdamW's learning rate follows cosine annealing across the configured epochs. To train for a different number of epochs, use `--epochs N`. To use the SMOTENC variant, choose `--dataset A-Smote` (or `C-Smote`). Training cross-entropy supports `--label-smoothing` (default `0`; try `0.05` first). The classifier's initial weights and bias are scaled by `--classifier-init-scale` (default `0.1`) to start with smaller logits. Compare runs with validation Macro-F1; these settings do not guarantee faster learning. See `python train.py --help` for all options, including the center-loss objective and training settings.
 
 ### Classical baselines
 
@@ -93,13 +93,13 @@ With `--experiment-name`, artifacts are saved under `checkpoints/<experiment-nam
 
 ### 2. Calibrate open-set rejection on validation
 
-After model selection, fit class centroids and rejection thresholds using the validation split:
+After model selection, fit class centroids on training data and evaluate your manually selected rejection thresholds on the validation split:
 
 ```bash
-python calibrate.py --experiment checkpoints/A_behavioral_ce --metric euclidean --no-show
+python calibrate.py --experiment checkpoints/A_behavioral_ce --metric euclidean --tau-c 0.70 --tau-d 2.0 --no-show
 ```
 
-Supported distance metrics are `euclidean` and `mahalanobis`. Calibration compares confidence-based, distance-based, and combined rejection rules while constraining the false rejection rate of known validation samples. It saves the frozen thresholds and calibration figures in the experiment directory. To compare a different training run, use that run's experiment directory.
+`--tau-c` is the minimum max-softmax confidence for acceptance (0–1); `--tau-d` is the maximum normalized distance to the predicted-class centroid for acceptance. A sample is rejected by the combined rule if its confidence is below `tau_c` or its distance is above `tau_d`. The confidence-only and distance-only results use their respective threshold, and the combined result uses both. The validation report and trade-off plot show how your choices affect known false rejections and DoS rejection; there is no automatic false-rejection budget or threshold search. Supported distance metrics are `euclidean` and `mahalanobis`. The calibration saves the selected thresholds and figures in the experiment directory. To compare another setting, rerun with different threshold values; to compare a different training run, use that run's experiment directory.
 
 ### 3. Evaluate
 
@@ -127,9 +127,33 @@ python visualize_embeddings.py --experiment checkpoints/A_behavioral_ce --method
 
 UMAP is also available with `--method umap` or `--method both`.
 
+### Compare Exploits and Reconnaissance features
+
+To inspect per-feature distribution differences for the two attack classes:
+
+```bash
+python analyze_class_overlap.py --dataset both --split all
+```
+
+The script uses the 37 behavioral features and writes class counts plus one
+feature-comparison CSV per dataset/split to
+`results/class_overlap/without-smote/`. Use `--variant with-smote` to analyze
+the SMOTENC training variant, or `--split train` to select a single split. The
+report includes class medians and interquartile ranges, central-IQR overlap,
+univariate ROC AUC, Cliff's delta, and Mann-Whitney p-values adjusted for
+multiple feature tests. AUC values near 0.5 indicate little separation by that
+feature alone; they do not rule out separation from feature combinations.
+
+The split protocol matters: configuration A includes both classes in training,
+whereas configuration C holds Reconnaissance out as an unknown class, so the
+comparison is unavailable in C's train and validation splits. C's test-split
+comparison is descriptive only and must not be used to tune the model or its
+thresholds.
+
 ## Repository overview
 
 - `preprocessing_data.py`: raw-data cleaning, splitting, and optional SMOTENC.
+- `analyze_class_overlap.py`: pairwise distribution analysis for attack classes.
 - `train.py`, `calibrate.py`, `test.py`: model training, validation calibration, and final evaluation.
 - `data/`, `models/`, `utilis/`: data loading, model, loss, evaluation, and open-set utilities.
 - `visualize_embeddings.py`: optional embedding visualizations.

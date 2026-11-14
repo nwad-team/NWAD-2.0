@@ -85,19 +85,21 @@ def _finish(fig, plt, save_path, show):
     plt.close(fig)
 
 
-def plot_tradeoff_curves(curves: dict, chosen: dict, max_frr: float, title: str, save_path=None, show: bool = True):
+def plot_tradeoff_curves(curves: dict, chosen: dict, title: str, save_path=None, show: bool = True, max_frr: float | None = None):
 
     plt = _pyplot(show)
     fig, ax = plt.subplots(figsize=(7, 5.5))
-    colors = {"confidence": "tab:orange", "distance": "tab:blue", "combined": "tab:green"}
+    colors = {"confidence": "tab:orange", "distance": "tab:blue", "combined": "tab:green", "anomaly": "tab:purple"}
 
     for method, points in curves.items():
         ax.plot(points[:, 0], points[:, 1], label=method, color=colors.get(method), linewidth=1.8)
         if method in chosen:
             ax.scatter(*chosen[method], color=colors.get(method), edgecolor="black", zorder=5, s=60)
 
-    ax.axvline(max_frr, color="gray", linestyle="--", linewidth=1, label=f"FRR budget {max_frr:.0%}")
-    ax.set_xlim(0, 0.5)
+    if max_frr is not None:
+        ax.axvline(max_frr, color="gray", linestyle="--", linewidth=1, label=f"budget {max_frr:.0%}")
+
+    ax.set_xlim(0, 1.0)
     ax.set_ylim(0, 1.02)
     ax.set_xlabel("Known-class false rejection rate (validation)")
     ax.set_ylabel("Pseudo-unknown (DoS) rejection rate")
@@ -124,6 +126,31 @@ def plot_score_histograms(known: dict, unknown: dict, thresholds: dict, title: s
         ax.hist(np.clip(known[key], bins[0], bins[-1]), bins=bins, alpha=0.6, density=True, label="known classes", color="tab:blue")
         ax.hist(np.clip(unknown[key], bins[0], bins[-1]), bins=bins, alpha=0.6, density=True, label="DoS (pseudo-unknown)", color="tab:red")
         if tau is not None and np.isfinite(tau) and tau > 0:
+            ax.axvline(tau, color="black", linestyle="--", linewidth=1.2, label=f"threshold {tau:.3f}")
+        ax.set_xlabel(label)
+        ax.set_ylabel("Density")
+        ax.legend()
+
+    fig.suptitle(title)
+    _finish(fig, plt, save_path, show)
+
+
+def plot_anomaly_histograms(groups: dict, thresholds: dict, title: str, save_path=None, show: bool = True):
+    """Entropy and distance-to-Benign per group, e.g. {"Benign": scores, "known attacks": scores, "DoS": scores}."""
+    plt = _pyplot(show)
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+    colors = ["tab:blue", "tab:green", "tab:red", "tab:gray"]
+
+    all_dist = np.concatenate([g["dist_benign"] for g in groups.values()])
+    panels = [
+        ("entropy", "Normalized entropy (0 = certain, 1 = uniform)", thresholds.get("tau_h"), np.linspace(0, 1, 51)),
+        ("dist_benign", "Distance to Benign centroid (Benign radii)", thresholds.get("tau_b"), np.linspace(0, np.quantile(all_dist, 0.99), 51)),
+    ]
+
+    for ax, (key, label, tau, bins) in zip(axes, panels):
+        for color, (name, scores) in zip(colors, groups.items()):
+            ax.hist(np.clip(scores[key], bins[0], bins[-1]), bins=bins, alpha=0.5, density=True, label=name, color=color)
+        if tau is not None and np.isfinite(tau):
             ax.axvline(tau, color="black", linestyle="--", linewidth=1.2, label=f"threshold {tau:.3f}")
         ax.set_xlabel(label)
         ax.set_ylabel("Density")

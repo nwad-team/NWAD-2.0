@@ -1,8 +1,11 @@
+import torch
 import torch.nn as nn
 
 class MLPClassifier(nn.Module):
-    def __init__(self,input_dim: int,num_classes: int = 5,hidden_dims: tuple[int, ...] = (256, 128),embedding_dim: int = 32,dropout: float = 0.3,):
+    def __init__(self,input_dim: int,num_classes: int = 5,hidden_dims: tuple[int, ...] = (256, 128, 64),embedding_dim: int = 32,dropout: float = 0.3,classifier_init_scale: float = 0.1,):
         super().__init__()
+        if not 0.0 < classifier_init_scale <= 1.0:
+            raise ValueError("classifier_init_scale must be in (0, 1].")
 
         self.config = {
             "input_dim": int(input_dim),
@@ -10,6 +13,7 @@ class MLPClassifier(nn.Module):
             "hidden_dims": [int(h) for h in hidden_dims],
             "embedding_dim": int(embedding_dim),
             "dropout": float(dropout),
+            "classifier_init_scale": float(classifier_init_scale),
         }
 
         layers = []
@@ -31,6 +35,9 @@ class MLPClassifier(nn.Module):
 
         self.feature_extractor = nn.Sequential(*layers)
         self.classifier = nn.Linear(embedding_dim, num_classes)
+        with torch.no_grad():
+            self.classifier.weight.mul_(classifier_init_scale)
+            self.classifier.bias.mul_(classifier_init_scale)
 
     def forward(self, x, return_embedding: bool = False):
         embedding = self.feature_extractor(x)
