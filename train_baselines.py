@@ -34,7 +34,7 @@ def parse_args():
 
 def build_models(seed: int):
     return {
-        "random-forest": RandomForestClassifier(n_estimators=100,n_jobs=-1,random_state=seed,),
+        "random-forest": RandomForestClassifier(n_estimators=100,n_jobs=1,random_state=seed,),
         "logistic-regression": LogisticRegression(max_iter=1000,random_state=seed,),
     }
 
