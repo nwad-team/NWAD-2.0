@@ -33,6 +33,18 @@ outputs/
 *.pt
 *.ckpt
 *.onnx
+*.joblib
+
+# Generated experiment results and archives
+results/
+*.zip
+
+# Generated plots and images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
 
 # Logs and experiment artifacts
 logs/

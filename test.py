@@ -8,13 +8,16 @@ import pandas as pd
 import torch
 from sklearn.metrics import classification_report
 
-from utilis.experiment import UNKNOWN_LABEL, compute_outputs, load_experiment, load_split
+from utilis.experiment import ANOMALY_LABEL, UNKNOWN_LABEL, compute_outputs, load_experiment, load_split
 from utilis.plots import plot_confusion_matrix, plot_outcome_table
 from utilis.rejection import (
     METHODS,
     METRICS,
+    BenignReference,
     CentroidModel,
+    apply_anomaly_rule,
     apply_rule,
+    compute_anomaly_scores,
     compute_scores,
     format_report,
     open_set_report,
@@ -25,7 +28,8 @@ from utilis.rejection import (
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate a trained and calibrated model with the open-set rejection rule.")
     parser.add_argument("--experiment", type=Path, required=True, help="Experiment directory written by train.py --experiment-name.")
-    parser.add_argument("--metric", choices=METRICS, default="euclidean", help="Which calibration file to use: rejection_<metric>.json.")
+    parser.add_argument("--metric", choices=METRICS, default="euclidean", help="Which calibration file to use: rejection_<metric>.json (or anomaly_<metric>.json).")
+    parser.add_argument("--anomaly", action="store_true", help="Use the ANOMALY-mode calibration (Benign centroid + entropy).")
     parser.add_argument("--split", choices=["validation", "test"], default="validation", help="Data split to evaluate (default: validation).")
     parser.add_argument("--final", action="store_true", help="Required for --split test: confirms the protocol is frozen.")
     parser.add_argument("--batch-size", "-b", type=int, default=2048)
@@ -53,9 +57,11 @@ def main():
     random.seed(args.seed)
     np.random.seed(args.seed)
 
-    calibration_path = args.experiment / f"rejection_{args.metric}.json"
+    prefix = "anomaly" if args.anomaly else "rejection"
+    calibration_path = args.experiment / f"{prefix}_{args.metric}.json"
     if not calibration_path.is_file():
-        raise FileNotFoundError(f"{calibration_path} not found. Run calibrate.py --metric {args.metric} first.")
+        flag = " --anomaly" if args.anomaly else ""
+        raise FileNotFoundError(f"{calibration_path} not found. Run calibrate.py --metric {args.metric}{flag} first.")
 
     with open(calibration_path, encoding="utf-8") as f:
         calibration = json.load(f)
@@ -68,17 +74,20 @@ def main():
         )
 
     class_names = experiment["class_names"]
-    centroids = CentroidModel.from_dict(calibration["centroids"])
-    require_agreement = calibration["require_agreement"]
 
     X, y = load_split(experiment, args.split)
     y = np.asarray(y, dtype=object)
 
     logits, embeddings = compute_outputs(experiment, X, args.batch_size, args.precision, args.cast)
-    scores = compute_scores(logits, embeddings, centroids)
+    if args.anomaly:
+        scores = compute_anomaly_scores(logits, embeddings, BenignReference.from_dict(calibration["benign_reference"]))
+        reject_label = ANOMALY_LABEL
+    else:
+        scores = compute_scores(logits, embeddings, CentroidModel.from_dict(calibration["centroids"]))
+        reject_label = UNKNOWN_LABEL
     closed_labels = np.asarray(class_names, dtype=object)[scores["pred"]]
 
-    tag = f"Config {experiment['dataset']} | {experiment['loss_type']} | {args.metric}"
+    tag = f"Config {experiment['dataset']} | {experiment['loss_type']} | {args.metric}" + (" | ANOMALY mode" if args.anomaly else "")
 
     print(f"Experiment: {args.experiment} ({calibration['checkpoint']}.pt, epoch {experiment['checkpoint_epoch']})")
     print(f"Split: {args.split} | Samples: {len(y)} | Device: {experiment['device']}")
@@ -102,36 +111,43 @@ def main():
 
     # Open-set view: each rejection method with its frozen thresholds.
     results = {}
-    for method in METHODS:
+    methods = ["anomaly"] if args.anomaly else list(METHODS)
+    for method in methods:
         selection = calibration["methods"][method]
         if not selection.get("feasible"):
             print(f"\n[{method}] skipped: not feasible at calibration time.")
             continue
 
-        final_labels = apply_rule(scores, class_names, method, selection["tau_c"], selection["tau_d"], require_agreement)
-        report = open_set_report(y, final_labels, closed_labels, class_names)
-        table = outcome_table(y, final_labels, class_names)
-        results[method] = {"tau_c": selection["tau_c"], "tau_d": selection["tau_d"], "report": report, "outcomes": table.to_dict()}
+        if args.anomaly:
+            thresholds = {"tau_h": selection["tau_h"], "tau_b": selection["tau_b"]}
+            final_labels = apply_anomaly_rule(scores, class_names, **thresholds)
+        else:
+            thresholds = {"tau_c": selection["tau_c"], "tau_d": selection["tau_d"]}
+            final_labels = apply_rule(scores, class_names, method, **thresholds, require_agreement=calibration["require_agreement"])
 
-        print(f"\n[{method}] tau_c = {selection['tau_c']:.4f} | tau_d = {selection['tau_d']:.4f}")
+        report = open_set_report(y, final_labels, closed_labels, class_names, reject_label=reject_label)
+        table = outcome_table(y, final_labels, class_names, reject_label=reject_label)
+        results[method] = {**thresholds, "report": report, "outcomes": table.to_dict()}
+
+        print(f"\n[{method}] " + " | ".join(f"{k} = {v:.4f}" for k, v in thresholds.items()))
         print(format_report(report))
         print(table.to_string())
 
         plot_outcome_table(
             table,
             title=f"{tag} | {args.split}, {method} rule",
-            save_path=args.experiment / f"{args.split}_outcomes_{method}_{args.metric}.png",
-            show=(not args.no_show) and method == "combined",
+            save_path=args.experiment / f"{args.split}_outcomes_{'anomaly' if args.anomaly else method}_{args.metric}.png",
+            show=(not args.no_show) and method in ("combined", "anomaly"),
         )
 
-    out_path = args.experiment / f"results_{args.split}_{args.metric}.json"
+    out_path = args.experiment / f"results_{args.split}_{prefix}_{args.metric}.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(
             {
                 "split": args.split,
                 "metric": args.metric,
                 "calibration_file": calibration_path.name,
-                "unknown_label": UNKNOWN_LABEL,
+                "reject_label": reject_label,
                 "precision": args.precision,
                 "cast": args.cast,
                 "results": results,

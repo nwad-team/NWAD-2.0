@@ -18,7 +18,7 @@ from data.data_loading import CONFIG_CLASSES, encode_labels, load_train_validati
 from data.preprocessing import build_preprocessor
 from eval import evaluate
 from models.MLP import MLPClassifier
-from utilis.loss import JointLoss
+from utilis.loss import ClassificationLoss, JointLoss
 from utilis.metrics import macro_f1
 from utilis.plots import plot_confusion_matrix
 
@@ -28,17 +28,18 @@ def parse_args():
     parser.add_argument("--dataset", type=str, choices=["A", "A-Smote", "C", "C-Smote"], required=True, help="Dataset configuration to load.")
     parser.add_argument("--feature-set", type=str, choices=["behavioral", "shortcut", "combined"], default="behavioral", help="Feature group to load (default: behavioral).")
     parser.add_argument("--batch-size", "-b", type=int, default=256, help="Mini-batch size (default: 256).")
-    parser.add_argument("--epochs", type=int, default=100, metavar="N", help="Number of epochs to train (default: 100).")
+    parser.add_argument("--epochs", type=int, default=250, metavar="N", help="Number of epochs to train (default: 100).")
     parser.add_argument("--lr", type=float, default=1e-3, metavar="LR", help="AdamW learning rate (default: 1e-3).")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="AdamW decoupled weight decay (default: 1e-4).")
-    parser.add_argument("--lr-patience", type=int, default=4, help="Epochs without improvement before halving the learning rate (default: 4).")
     parser.add_argument("--min-delta", type=float, default=1e-4, help="Minimum Macro-F1 gain that counts as an improvement (default: 1e-4).")
-    parser.add_argument("--hidden-dims", type=int, nargs="+", default=[256, 128], help="Hidden layer widths (default: 256 128).")
+    parser.add_argument("--hidden-dims", type=int, nargs="+", default=[512, 256, 128, 64], help="Hidden layer widths (default: 256 128).")
     parser.add_argument("--embedding-dim", type=int, default=32, help="Embedding (penultimate layer) dimension (default: 32).")
-    parser.add_argument("--dropout", type=float, default=0.1, help="Dropout after each hidden layer (default: 0.3).")
+    parser.add_argument("--dropout", type=float, default=0.05, help="Dropout after each hidden layer (default: 0.05).")
     parser.add_argument("--loss", type=str, choices=["ce", "center"], default="ce", help="Training objective: plain cross-entropy or CE + lambda * center loss (default: ce).")
     parser.add_argument("--center-lambda", type=float, default=0.01, help="Weight of the center-loss term (default: 0.01). Only used with --loss center.")
     parser.add_argument("--center-lr", type=float, default=0.5, help="SGD learning rate for the class centers (default: 0.5, as in Wen et al. 2016).")
+    parser.add_argument("--label-smoothing", type=float, default=0.1, help="Label-smoothing factor for training cross-entropy (default: 0; try 0.05).")
+    parser.add_argument("--classifier-init-scale", type=float, default=0.1, help="Scale applied to the classifier's initial weights and bias (default: 0.1).")
     parser.add_argument("--num-workers", "-j", type=int, default=0, help="DataLoader workers (default: 0; the data is already an in-memory tensor).")
     parser.add_argument("--precision", type=lambda value: value.upper(), choices=["FP32", "FP16", "BF16"], default="FP32", help="Requested training precision; AMP is used for FP16/BF16 on CUDA.")
     parser.add_argument("--seed", type=int, default=42)
@@ -50,12 +51,18 @@ def parse_args():
 
     if args.batch_size < 2:
         parser.error("--batch-size must be at least 2 (BatchNorm needs more than one sample).")
+    if args.epochs < 1:
+        parser.error("--epochs must be at least 1.")
     if args.num_workers < 0:
         parser.error("--num-workers cannot be negative")
     if not 0.0 <= args.dropout < 1.0:
         parser.error("--dropout must be in [0, 1)")
     if args.center_lambda <= 0:
         parser.error("--center-lambda must be positive")
+    if not 0.0 <= args.label_smoothing < 1.0:
+        parser.error("--label-smoothing must be in [0, 1)")
+    if not 0.0 < args.classifier_init_scale <= 1.0:
+        parser.error("--classifier-init-scale must be in (0, 1]")
 
     return args
 
@@ -83,6 +90,7 @@ def save_checkpoint(path: Path, model, criterion, optimizer, scheduler, epoch, v
             "model_config": model.config,
             "loss_type": args.loss,
             "center_lambda": float(args.center_lambda) if args.loss == "center" else None,
+            "label_smoothing": float(args.label_smoothing),
             "criterion_state_dict": criterion.state_dict(),
             "class_names": list(class_names),
             "dataset": args.dataset,
@@ -177,6 +185,7 @@ def main():
         hidden_dims=tuple(args.hidden_dims),
         embedding_dim=args.embedding_dim,
         dropout=args.dropout,
+        classifier_init_scale=args.classifier_init_scale,
     ).to(device)
 
     use_amp = args.precision != "FP32" and device.type == "cuda"
@@ -191,9 +200,10 @@ def main():
         num_classes=num_classes,
         embedding_dim=args.embedding_dim,
         center_lambda=args.center_lambda,
+        label_smoothing=args.label_smoothing,
     ).to(device)
-    # Validation loss is always plain cross-entropy so runs are comparable.
-    val_criterion = criterion.ce
+    # Keep validation loss unsmoothed so it remains comparable across runs.
+    val_criterion = ClassificationLoss()
 
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
@@ -201,11 +211,9 @@ def main():
     center_optimizer = None
     if criterion.center is not None:
         center_optimizer = optim.SGD(criterion.center.parameters(), lr=args.center_lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        mode="max",
-        factor=0.5,
-        patience=args.lr_patience,
+        T_max=args.epochs,
     )
 
     # 7. Print run configuration.
@@ -214,8 +222,12 @@ def main():
     print(f"Input features after preprocessing: {input_dim}")
     print(f"Model: hidden={args.hidden_dims}, embedding={args.embedding_dim}, dropout={args.dropout}, params={total_params:,}")
     loss_text = "cross-entropy" if args.loss == "ce" else f"cross-entropy + {args.center_lambda} * center loss (center lr {args.center_lr})"
-    print(f"Loss: {loss_text}")
-    print(f"Optimizer: AdamW(lr={args.lr}, weight_decay={args.weight_decay}), ReduceLROnPlateau(factor=0.5, patience={args.lr_patience})")
+    print(f"Loss: {loss_text} | label smoothing={args.label_smoothing}")
+    print(f"Classifier initial weight/bias scale: {args.classifier_init_scale}")
+    print(
+        f"Optimizer: AdamW(lr={args.lr}, weight_decay={args.weight_decay}), "
+        f"CosineAnnealingLR(T_max={args.epochs}, eta_min=0)"
+    )
     print(f"Training samples: {len(train_dataset)} | Validation samples: {len(validation_dataset)}")
     print(f"Batch size: {args.batch_size} | Epochs: {args.epochs}")
     print(f"Device: {device} | Precision: {args.precision} | Workers: {args.num_workers}")
@@ -231,6 +243,11 @@ def main():
                     "input_dim": input_dim,
                     "model_config": model.config,
                     "total_params": total_params,
+                    "scheduler": {
+                        "name": "CosineAnnealingLR",
+                        "t_max": args.epochs,
+                        "eta_min": 0.0,
+                    },
                 },
                 f,
                 indent=2,
@@ -316,7 +333,7 @@ def main():
         val_macro_f1 = val_metrics["macro_f1"]
         current_lr = optimizer.param_groups[0]["lr"]
 
-        scheduler.step(val_macro_f1)
+        scheduler.step()
 
         improved = val_macro_f1 > best_val_macro_f1 + args.min_delta
         if improved:

@@ -10,6 +10,8 @@ from models.MLP import MLPClassifier
 
 PSEUDO_UNKNOWN_CLASS = "DoS"
 UNKNOWN_LABEL = "UNKNOWN"
+ANOMALY_LABEL = "ANOMALY"
+BENIGN_CLASS = "Benign"
 
 DTYPES = {"FP32": torch.float32, "FP16": torch.float16, "BF16": torch.bfloat16}
 
